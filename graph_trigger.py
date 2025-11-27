@@ -8,6 +8,7 @@ A = {
   (1, 2): 35,
   (2, 0): 15,
   (2, 1): 35,
+  
 }
 
 trigger_relations = {
@@ -18,11 +19,11 @@ trigger_relations = {
 
 def calculate_cost(path, A , trigger_relations):
   total_cost = 0;
-  last trigger = {}
+  last_trigger = {}
 
 for i in range(len(path) - 1):
   edge = (path[i], path[i+1])
-  active_cost = A(edge)
+  active_cost = A[edge]
 
 if edge in trigger_relations:
   for t_edge, new_cost in trigger_relations[edge]:
@@ -39,5 +40,5 @@ return total_cost
 
 path = [0, 1, 2]
 
-const = calculate_cost(path, A, trigger_relatoions)
+const = calculate_cost(path, A, trigger_relations)
 print(f"Cikli: {path} me kosto: {cost}")
