@@ -40,7 +40,7 @@ total_cost +=A[edge]
 
 return total_cost
 
-path = [0, 1, 2]
+path = [0, 1, 2, 3]
 
 const = calculate_cost(path, A, trigger_relations)
 print(f"Cikli: {path} me kosto: {cost}")
