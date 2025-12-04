@@ -24,6 +24,7 @@ def calculate_cost(path, A, trigger_relations):
     total_cost = 0
     last_trigger = {}
     current_costs = A.copy()  
+    passed_arcs = set() 
 
     for i in range(len(path) - 1):
         edge = (path[i], path[i+1])
@@ -31,16 +32,19 @@ def calculate_cost(path, A, trigger_relations):
 
         if edge in trigger_relations:
             for t_edge, new_cost in trigger_relations[edge]:
-                current_costs[t_edge] = new_cost  
+                if t_edge not in passed_arcs:
+                    current_costs[t_edge] = new_cost  
 
         last_trigger[edge] = edge
         total_cost += active_cost
+        passed_arcs.add(edge)  
 
-   
+ 
     last_edge = (path[-1], path[0])
     total_cost += current_costs[last_edge]
 
     return total_cost
+
 
 
 path = [0, 1, 2, 3]
