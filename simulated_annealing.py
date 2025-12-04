@@ -24,20 +24,22 @@ TRIGGERS = {
 def tatsp_cost(route):
     total_cost = 0
     current_costs = A.copy()
+    last_trigger = {} 
 
     for i in range(len(route) - 1):
         arc = (route[i], route[i + 1])
-        total_cost += current_costs[arc]
-
-
+        
         for (trigger, affected), new_cost in TRIGGERS.items():
-            if arc == trigger:
-                current_costs[affected] = new_cost
+            if trigger == arc:
+                last_trigger[affected] = new_cost
+        
+        total_cost += last_trigger.get(arc, current_costs[arc])
 
     last_arc = (route[-1], route[0])
-    total_cost += current_costs[last_arc]
+    total_cost += last_trigger.get(last_arc, current_costs[last_arc])
 
     return total_cost
+
 
 def generate_neighbor(route):
     new_route = route[:]
