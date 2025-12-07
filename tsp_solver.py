@@ -1,150 +1,146 @@
-import sys, os, time, random, math
-from typing import List, Tuple, Dict, Optional
-from cost_eval import (
-    INF,
-    tour_arcs_from_nodes,
-    compute_tour_cost_from_arcseq,
-    compute_tour_cost
-)
+import time
+import random
+from typing import List, Tuple, Dict
+from cost_eval import compute_tour_cost, INF
 
 def parse_instance(path: str):
     with open(path, "r", encoding="utf-8") as f:
-        lines = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-    tokens = []
-    for ln in lines:
-        clean = ln.replace("(", " ").replace(")", " ").replace(",", " ")
-        tokens.extend(clean.split())
-    if len(tokens) < 3:
-        raise ValueError("Instance too short.")
-    idx = 0
-    n_nodes = int(tokens[idx]); idx+=1
-    n_arcs = int(tokens[idx]); idx+=1
-    n_rel = int(tokens[idx]); idx+=1
-    arcs = {}
-    arc_by_uv = {}
-    for _ in range(n_arcs):
-        aidx = int(tokens[idx]); u = int(tokens[idx+1]); v = int(tokens[idx+2]); cost = float(tokens[idx+3])
-        idx += 4
-        arcs[aidx] = (u, v, cost)
-        arc_by_uv[(u,v)] = aidx
+        raw_lines = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+
+    header = raw_lines[0].split()
+    n_nodes = int(header[0]); n_arcs = int(header[1]); n_rel = int(header[2])
+
+    arcs: Dict[int, Tuple[int,int,float]] = {}
+    arc_by_uv: Dict[Tuple[int,int], int] = {}
+
+    for i in range(1, 1 + n_arcs):
+        aidx, u, v, c = raw_lines[i].split()
+        aidx = int(aidx); u = int(u); v = int(v); c = float(c)
+        if c < 0:
+            raise ValueError(f"Arc {aidx} ({u}->{v}) has negative cost {c}, which is not allowed.")
+        arcs[aidx] = (u, v, c)
+        arc_by_uv[(u, v)] = aidx
+
     relations = []
-    while idx < len(tokens):
-        nums = []
-        lookahead = 6
-        for j in range(lookahead):
-            if idx+j >= len(tokens): break
-            tok = tokens[idx+j]
-            s = ''.join(ch for ch in tok if (ch.isdigit() or ch=='-' or ch=='.'))
-            if s=="": continue
-            try: nums.append(float(s))
-            except: pass
-        idx += max(1, min(lookahead, len(nums)+1))
-        if len(nums) >= 3:
-            trig = int(nums[0]); targ = int(nums[1]); newc = nums[2]
-            relations.append((trig, targ, newc))
-            continue
-            if len(nums) >= 5:
-                tfrom = int(nums[0]); tto = int(nums[1]); sfrom = int(nums[2]); sto = int(nums[3]); newc = nums[4]
-                trig_idx = arc_by_uv.get((tfrom,tto))
-                targ_idx = arc_by_uv.get((sfrom,sto))
-                if trig_idx is not None and targ_idx is not None:
-                    relations.append((trig_idx, targ_idx, newc))
-                    continue
-    return n_nodes, arcs, arc_by_uv, relations
+    rel_start = 1 + n_arcs
+    for k in range(rel_start, rel_start + n_rel):
+        parts = raw_lines[k].split()
+        rel_idx = int(parts[0])
+        trig_idx = int(parts[1]); trig_u = int(parts[2]); trig_v = int(parts[3])
+        targ_idx = int(parts[4]); targ_u = int(parts[5]); targ_v = int(parts[6])
+        new_cost = float(parts[7])
+        if new_cost < 0:
+            raise ValueError(f"Relation {rel_idx} sets negative cost {new_cost} for arc {targ_idx}, which is not allowed.")
+        if (trig_u, trig_v) != arcs[trig_idx][:2]:
+            raise ValueError(f"Relation {rel_idx} trigger arc mismatch: expected {arcs[trig_idx][:2]}, got {(trig_u,trig_v)}")
+        if (targ_u, targ_v) != arcs[targ_idx][:2]:
+            raise ValueError(f"Relation {rel_idx} target arc mismatch: expected {arcs[targ_idx][:2]}, got {(targ_u,targ_v)}")
+        relations.append((trig_idx, targ_idx, new_cost))
 
+    trigger_map_by_trigger: Dict[int, List[Tuple[int, float]]] = {}
+    for trig_idx, targ_idx, newc in relations:
+        trigger_map_by_trigger.setdefault(trig_idx, []).append((targ_idx, newc))
 
+    return n_nodes, arcs, arc_by_uv, trigger_map_by_trigger
 
-def greedy_construct(n_nodes, arcs, arc_by_uv, trigger_map_by_trigger, attempts=200):
-    best_t, best_c = None, INF
-    for _ in range(attempts):
-        start = 0; curr = start; visited = {start}; tour = [start]
-        while len(visited) < n_nodes:
-            cand = [(arcs[aidx][2], v) for v in range(n_nodes) if v not in visited and (aidx:=arc_by_uv.get((curr,v))) is not None]
-            if not cand: break
-            cand.sort(key=lambda x:x[0])
-            _, v = random.choice(cand[:min(3,len(cand))])
-            tour.append(v); visited.add(v); curr=v
-        tour.append(start)
-        cost, valid = compute_tour_cost(tour, arcs, arc_by_uv, trigger_map_by_trigger)
-        if valid and cost < best_c: best_t, best_c = tour, cost
-    return best_t, best_c
+def greedy_construct(n_nodes, arcs, arc_by_uv, trigger_map_by_trigger, seed=None):
+    rng = random.Random(seed)
+    unvisited = set(range(n_nodes))
+    current = 0
+    tour = [current]
+    unvisited.remove(current)
+    while unvisited:
+        best_v, best_c = None, INF
+        for v in unvisited:
+            a = arc_by_uv.get((current, v))
+            if a is None:
+                continue
+            c = arcs[a][2]
+            if c < best_c or (c == best_c and rng.random() < 0.5):
+                best_v, best_c = v, c
+        if best_v is None:
+            best_v = rng.choice(list(unvisited))
+        tour.append(best_v)
+        unvisited.remove(best_v)
+        current = best_v
+    tour.append(0)
+    return tour
 
+def two_opt(tour: List[int], i: int, k: int) -> List[int]:
+    return tour[:i] + list(reversed(tour[i:k+1])) + tour[k+1:]
 
-def two_opt_once(tour, arcs, arc_by_uv, trigger_map_by_trigger):
-    n = len(tour)-1; best_t=tour; best_c,_=compute_tour_cost(tour, arcs, arc_by_uv, trigger_map_by_trigger)
-    for i in range(1,n-1):
-        for j in range(i+1,n):
-            if j-i==0: continue
-            cand = tour[:i]+tour[i:j+1][::-1]+tour[j+1:]
-            cost, valid = compute_tour_cost(cand, arcs, arc_by_uv, trigger_map_by_trigger)
-            if valid and cost < best_c:
-                return cand, True
-    return best_t, False
+def relocate(tour: List[int], i: int, j: int) -> List[int]:
+    if i == 0 or i == len(tour)-1:
+        return tour
+    node = tour[i]
+    new = tour[:i] + tour[i+1:]
+    new = new[:j] + [node] + new[j:]
+    if new[0] != 0:
+        z = new.index(0)
+        new = new[z:] + new[:z]
+    if new[-1] != 0:
+        new.append(0)
+    return new
 
-def relocate_once(tour, arcs, arc_by_uv, trigger_map_by_trigger):
-    n = len(tour)-1
-    for i in range(1,n):
-        for j in range(1,n):
-            if i==j: continue
-            t = tour.copy(); node = t.pop(i); t.insert(j,node)
-            cost, valid = compute_tour_cost(t, arcs, arc_by_uv, trigger_map_by_trigger)
-            if valid and cost < compute_tour_cost(tour, arcs, arc_by_uv, trigger_map_by_trigger)[0]:
-                return t, True
-    return tour, False
+def local_search(tour, arcs, arc_by_uv, trigger_map_by_trigger, time_budget, start_time):
+    best = tour
+    best_cost, _ = compute_tour_cost(best, arcs, arc_by_uv, trigger_map_by_trigger)
+    n = len(tour) - 1
+    improved = True
+    while improved and time.time() - start_time < time_budget:
+        improved = False
+        for i in range(1, n-1):
+            for k in range(i+1, n):
+                if time.time() - start_time >= time_budget: break
+                cand = two_opt(best, i, k)
+                c, _ = compute_tour_cost(cand, arcs, arc_by_uv, trigger_map_by_trigger)
+                if c < best_cost:
+                    best, best_cost = cand, c
+                    improved = True
+                    break
+            if improved: break
+        for i in range(1, n):
+            for j in range(1, n):
+                if time.time() - start_time >= time_budget: break
+                if i == j: continue
+                cand = relocate(best, i, j)
+                c, _ = compute_tour_cost(cand, arcs, arc_by_uv, trigger_map_by_trigger)
+                if c < best_cost:
+                    best, best_cost = cand, c
+                    improved = True
+                    break
+            if improved: break
+    return best, best_cost
 
-def local_search_full(tour, arcs, arc_by_uv, trigger_map_by_trigger, max_no_improve=50):
-    curr=tour; curr_cost,_=compute_tour_cost(curr, arcs, arc_by_uv, trigger_map_by_trigger)
-    no_improve=0
-    while no_improve<max_no_improve:
-        cand,did=two_opt_once(curr, arcs, arc_by_uv, trigger_map_by_trigger)
-        if did: curr= cand; no_improve=0; continue
-        cand,did=relocate_once(curr, arcs, arc_by_uv, trigger_map_by_trigger)
-        if did: curr= cand; no_improve=0; continue
-        no_improve+=1
-    return curr, compute_tour_cost(curr, arcs, arc_by_uv, trigger_map_by_trigger)[0]
+def double_bridge_perturbation(tour, rng):
+    n = len(tour) - 1
+    if n < 8: return tour[:]
+    splits = sorted(rng.sample(range(1, n), 4))
+    a,b,c,d = splits
+    p1 = tour[:a]; p2 = tour[a:b]; p3 = tour[b:c]; p4 = tour[c:d]; p5 = tour[d:]
+    new_tour = p1 + p3 + p2 + p4 + p5
+    if new_tour[-1] != 0: new_tour.append(0)
+    return new_tour
 
-
-def double_bridge(tour):
-    n=len(tour)-1
-    if n<8:
-        mid=tour[1:-1]; random.shuffle(mid); return [tour[0]]+mid+[tour[0]]
-    pos=sorted(random.sample(range(1,n),4)); a,b,c,d=pos
-    A=tour[1:a+1]; B=tour[a+1:b+1]; C=tour[b+1:c+1]; D=tour[c+1:d+1]; E=tour[d+1:-0] if d+1<n else []
-    return [tour[0]]+A+C+B+D+E+[tour[0]]
-
-def iterated_local_search(initial_tour, arcs, arc_by_uv, trigger_map_by_trigger, time_limit=30.0, seed=None):
-    random.seed(seed)
-    start_time=time.time()
-    best_tour=initial_tour
-    best_cost,_=compute_tour_cost(best_tour, arcs, arc_by_uv, trigger_map_by_trigger)
-    curr_tour=best_tour; curr_cost=best_cost; iter_no=0
-    while time.time()-start_time<time_limit:
-        curr_tour,curr_cost=local_search_full(curr_tour, arcs, arc_by_uv, trigger_map_by_trigger, max_no_improve=30)
-        if curr_cost<best_cost:
-            best_cost=curr_cost; best_tour=curr_tour.copy(); print(f"[ILS] new best {best_cost:.6f} at iter {iter_no}")
-        pert=double_bridge(curr_tour)
-        pert, pert_cost=local_search_full(pert, arcs, arc_by_uv, trigger_map_by_trigger, max_no_improve=20)
-        if pert_cost<curr_cost or random.random()<0.05: curr_tour, curr_cost=pert, pert_cost
-        iter_no+=1
-    return best_tour, best_cost
-
+def iterated_local_search(init_tour, arcs, arc_by_uv, trigger_map_by_trigger, time_budget_seconds=30, seed=None):
+    rng = random.Random(seed)
+    start_time = time.time()
+    best, best_cost = local_search(init_tour, arcs, arc_by_uv, trigger_map_by_trigger, time_budget_seconds, start_time)
+    current, current_cost = best[:], best_cost
+    while time.time() - start_time < time_budget_seconds:
+        cand = double_bridge_perturbation(current, rng)
+        cand, cand_cost = local_search(cand, arcs, arc_by_uv, trigger_map_by_trigger, time_budget_seconds, start_time)
+        if cand_cost < current_cost or rng.random() < 0.05:
+            current, current_cost = cand, cand_cost
+            if cand_cost < best_cost:
+                best, best_cost = cand, cand_cost
+    _, arc_costs = compute_tour_cost(best, arcs, arc_by_uv, trigger_map_by_trigger)
+    return best, best_cost, arc_costs
 
 def solve_instance(path, time_budget_seconds=30, seed=None):
-    n_nodes, arcs, arc_by_uv, relations = parse_instance(path)
-    trigger_map_by_trigger={}
-    for trig,targ,newc in relations:
-        trigger_map_by_trigger.setdefault(trig, []).append((targ,newc))
-    print(f"Parsed: n={n_nodes}, arcs={len(arcs)}, relations={len(relations)}")
-    init_tour, init_cost=greedy_construct(n_nodes, arcs, arc_by_uv, trigger_map_by_trigger, attempts=300)
-    if init_tour is None:
-        mid=list(range(1,n_nodes)); random.shuffle(mid); init_tour=[0]+mid+[0]
-        init_cost,_=compute_tour_cost(init_tour, arcs, arc_by_uv, trigger_map_by_trigger)
-        if init_cost>=INF: raise RuntimeError("No valid initial tour.")
-    print(f"Initial cost: {init_cost:.6f}")
-    best_tour, best_cost=iterated_local_search(init_tour, arcs, arc_by_uv, trigger_map_by_trigger, time_limit=time_budget_seconds, seed=seed)
-    print(f"Best cost after ILS: {best_cost:.6f}")
-    with open("solution.txt","w",encoding="utf-8") as f:
-        f.write(" ".join(map(str,best_tour))+"\n")
-        f.write(f"{best_cost:.6f}\n")
-
-    return best_tour, best_cost, arcs, trigger_map_by_trigger
+    n_nodes, arcs, arc_by_uv, trigger_map_by_trigger = parse_instance(path)
+    init_tour = greedy_construct(n_nodes, arcs, arc_by_uv, trigger_map_by_trigger, seed=seed)
+    best_tour, best_cost, arc_costs = iterated_local_search(
+        init_tour, arcs, arc_by_uv, trigger_map_by_trigger, time_budget_seconds=time_budget_seconds, seed=seed
+    )
+    return best_tour, best_cost, arcs, arc_by_uv, trigger_map_by_trigger, arc_costs
