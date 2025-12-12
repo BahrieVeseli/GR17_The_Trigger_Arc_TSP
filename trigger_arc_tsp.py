@@ -21,7 +21,7 @@ if __name__=="__main__":
     t1 = time.time()
     print(f"Done in {t1 - t0:.2f}s. Cost={cost:.6f}")
 
-    # print terminal-friendly sequence with applied costs
+
     print("\nRendi i turit (me kostot reale):")
     for (aidx, applied) in arc_costs:
         u, v, _ = arcs[aidx]

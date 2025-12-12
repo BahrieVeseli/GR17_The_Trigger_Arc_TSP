@@ -5,6 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="62dcf298-5cb3-4abd-8963-ff5dac39213d" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/instances/example.txt" beforeDir="false" afterPath="$PROJECT_DIR$/instances/example.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/trigger_arc_tsp.py" beforeDir="false" afterPath="$PROJECT_DIR$/trigger_arc_tsp.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
