@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 import argparse, time, random
 from tsp_solver import solve_instance
 from visualization import plot_tour
@@ -28,6 +28,6 @@ if __name__=="__main__":
         print(f"{u} -> {v} (arc {aidx}, cost={applied})")
     print(f"Total cost = {cost:.6f}\n")
 
-    # optional plot
+  
     if not args.no_plot:
         plot_tour(tour, arcs, arc_by_uv, trigger_map_by_trigger)
